@@ -4,8 +4,8 @@
 
 FROM docker.io/library/ruby:3.4.8-alpine3.22 AS builder
 
-COPY ./src/email/Gemfile Gemfile
-COPY ./src/email/Gemfile.lock Gemfile.lock
+COPY ./Gemfile Gemfile
+COPY ./Gemfile.lock Gemfile.lock
 
 RUN apk update && \
     apk add make gcc musl-dev gcompat && \
@@ -17,12 +17,12 @@ COPY --from=builder /usr/local/bundle/ /usr/local/bundle/
 
 WORKDIR /email_server
 
-COPY ./src/email/views/ views/
+COPY ./views/ views/
 
-COPY ./src/email/.ruby-version .ruby-version
-COPY ./src/email/Gemfile Gemfile
-COPY ./src/email/Gemfile.lock Gemfile.lock
-COPY ./src/email/email_server.rb email_server.rb
+COPY ./.ruby-version .ruby-version
+COPY ./Gemfile Gemfile
+COPY ./Gemfile.lock Gemfile.lock
+COPY ./email_server.rb email_server.rb
 
 EXPOSE ${EMAIL_PORT}
 ENTRYPOINT ["bundle", "exec", "ruby", "email_server.rb"]
