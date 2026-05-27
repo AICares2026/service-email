@@ -1,0 +1,24 @@
+service:
+  name: email
+image:
+  repository: 952893849914.dkr.ecr.us-east-1.amazonaws.com/aicares-application/email
+containerPort: 6060
+resources:
+  limits:
+    memory: "100Mi"
+  requests:
+    memory: "32Mi"
+    cpu: "50m"
+env:
+  - name: EMAIL_PORT
+    value: "6060"
+  - name: FLAGD_HOST
+    value: "flagd"
+  - name: FLAGD_PORT
+    value: "8013"
+  - name: OTEL_SERVICE_NAME
+    value: "email"
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: "http://otel-collector:4317"
+nodeSelector:
+  eks.amazonaws.com/nodegroup: graviton-workers
