@@ -1,0 +1,34 @@
+## Skill: Bundle Update – Refresh Gemfile.lock
+
+### Purpose
+Automatically update outdated or vulnerable gems in `Gemfile.lock` by running `bundle update`, then commit the refreshed lockfile. This keeps dependencies current and addresses known security vulnerabilities without modifying the `Gemfile` itself.
+
+---
+
+### Preconditions – Verify All Before Proceeding
+
+1. **Ruby project confirmed**: A `Gemfile` must exist in the repository root (or a recognized subdirectory). Do not run this skill on repos without a `Gemfile`.
+2. **Gemfile.lock exists**: If no `Gemfile.lock` is present, do not create one as part of this skill — that is a separate bootstrapping concern.
+3. **Bundler is available**: Confirm `bundle` is on the PATH by running `bundle --version`. If it fails, abort and log the failure.
+4. **Ruby version compatibility**: Check `.ruby-version`, `.tool-versions`, or the `ruby` directive in `Gemfile`. If the required Ruby version differs from the system runtime, abort and log — do not attempt to switch Ruby versions.
+5. **Clean working tree**: Run `git status --porcelain`. If there are uncommitted changes to `Gemfile`, `Gemfile.lock`, or any `.gemspec` file, abort entirely. Do not update on top of a dirty state.
+6. **No active lock files**: If a `.bundle/update.lock` or similar mutex file exists, abort to avoid concurrent update conflicts.
+7. **Not a vendored setup that requires re-vendoring**: If `vendor/bundle` or `vendor/cache` directories exist and `.bundle/config` sets `BUNDLE_PATH` pointing to them, run `bundle update` with the same path context. If re-vendoring would require network access that appears unavailable (i.e., `bundle update` fails due to network errors), abort and log.
+8. **Branch state**: Confirm you are not on a protected branch (e.g., `main`, `master`, `production`). If on a protected branch, create a new branch named `bundler-update/YYYY-MM-DD` before making any changes. All commits go to this branch; open a pull request at the end.
+
+---
+
+### What to Look For
+
+Identify gems that fall into any of the following categories:
+
+1. **Gems with known CVEs or security advisories**: Run `bundle exec bundle-audit update && bundle exec bundle-audit check --format json` (if `bundler-audit` is installed and available via `bundle exec bundle-audit --version`). Parse the JSON output to extract the gem name, CVE identifier, and advisory description for each finding. Any gem flagged as vulnerable is a priority update target. If `bundler-audit` is not installed, fall back to checking `Gemfile.lock` gem names and versions against the [ruby-advisory-db](https://github.com/rubysec/ruby-advisory-db) YAML files if that repo is locally cloned or fetchable.
+2. **Outdated gems**: Run `bundle outdated --parseable` and capture stdout. Each line has the format `gem-name (newest X.Y.Z, installed A.B.C, requested ~> A.B)`. Parse this to extract gem name, installed version, and newest version. Only treat a gem as an update candidate if the newest version is permitted by the `Gemfile` constraint shown in the output — do not attempt to update gems where the `Gemfile` constraint would block the upgrade (those require a `Gemfile` change, which is out of scope).
+3. **Gems with a locked version that violates current platform requirements**: Examine the `PLATFORMS` section of `Gemfile.lock`. If the listed platforms do not include the current platform returned by `bundle platform`, include a platform refresh by passing `--add-platform` or by allowing `bundle update` to reconcile platforms automatically.
+
+---
+
+### What to Leave Alone — Do Not Touch These
+
+- **Gems pinned to an exact version in the `Gemfile`** (e.g., `gem 'rails', '7.0.4'`): `bundle update` will respect these constraints automatically, but do not attempt workarounds to bypass them.
+- **Gems constrained by a `.gemspec`**: If the repo contains a `.gemspec` that pins a dependency, do not modify the `.gemspec`. If the update fails because a `.gemspec` constraint blocks a security fix, log this as a finding and abort

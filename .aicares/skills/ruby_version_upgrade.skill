@@ -1,0 +1,52 @@
+## Skill: Update Ruby Version to Latest Stable Patch Release
+
+### Objective
+Scan the codebase for Ruby version declarations and update them to the latest stable patch release within the same minor version line (e.g., 3.2.x → 3.2.latest). This keeps the project current with security backports without introducing breaking changes.
+
+---
+
+### Step 1: Determine the Current Ruby Version
+
+1. Read `.ruby-version` in the repository root. Extract the version string (e.g., `3.2.4`).
+2. If `.ruby-version` does not exist, check `Gemfile` for a `ruby` directive (e.g., `ruby '3.2.4'` or `ruby '~> 3.2.4'`). Extract the base version.
+3. If neither file exists, **stop and make no changes**. There is no Ruby version to update.
+4. Parse the version into `MAJOR.MINOR.PATCH` components. Record `MAJOR.MINOR` as the **target minor line** (e.g., `3.2`).
+5. If the version found is only `MAJOR.MINOR` with no patch component, **stop and make no changes**. There is no specific patch version to upgrade from.
+
+---
+
+### Step 2: Determine the Latest Stable Patch Release
+
+1. Query `https://cache.ruby-lang.org/pub/misc/api/versions.json` to retrieve the list of all released Ruby versions. This is the preferred source as it is machine-readable.
+2. If that request fails, fall back to fetching `https://www.ruby-lang.org/en/downloads/releases/` and parsing the version list from the page.
+3. Filter for versions matching `MAJOR.MINOR.*` (same minor line as the current version).
+4. Exclude any version whose string contains `preview`, `rc`, `dev`, `alpha`, or `beta` (case-insensitive).
+5. Select the highest remaining patch version by numeric comparison of the patch component (not lexicographic). Record this as `LATEST_PATCH` (e.g., `3.2.6`).
+6. If the current version already equals `LATEST_PATCH`, **stop and make no changes**. The project is already up to date.
+7. If both network requests fail, or if the filtered list is empty, **stop and make no changes**. Do not guess at version numbers.
+
+---
+
+### Step 3: Files to Update
+
+Update each file below **only if it exists and contains the current Ruby version string**. Do not create new files. Make all replacements as targeted string substitutions — do not reformat, reorder, or rewrite any surrounding content.
+
+#### 3a. `.ruby-version`
+- **Pattern**: The file contains a bare version string such as `3.2.4` or `ruby-3.2.4`.
+- **Fix**: Replace only the patch number portion. Preserve any prefix (`ruby-`) if present. Preserve any trailing newline exactly as found.
+  - `3.2.4` → `3.2.6`
+  - `ruby-3.2.4` → `ruby-3.2.6`
+- **Do not touch**: If the file contains a version on a different major or minor line than the one identified in Step 1, leave it unchanged.
+
+#### 3b. `Gemfile`
+- **Pattern**: Lines matching the `ruby` directive, such as:
+  - `ruby '3.2.4'`
+  - `ruby "3.2.4"`
+  - `ruby '~> 3.2.4'`
+  - `ruby '>= 3.2.4'`
+- **Fix**: Replace only the patch version number in the string literal. Preserve the operator (`~>`, `>=`, `=`, or no operator) and quote style exactly.
+  - `ruby '3.2.4'` → `ruby '3.2.6'`
+  - `ruby '~> 3.2.4'` → `ruby '~> 3.2.6'`
+- **Do not touch**:
+  - Lines specifying only `MAJOR.MINOR` with no patch component (e.g., `ruby '~> 3.2'`) — these are intentionally version-range constraints and must not be narrowed.
+  - Commented-out lines (lines where the first non-whitespace character is `
