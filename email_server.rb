@@ -94,8 +94,4 @@ def send_email(data)
 
     puts "Order confirmation email sent for order #{data.order.order_id}"
   end
-  # manually created spans need to be ended
-  # in Ruby, the method `in_span` ends it automatically
-  # check out the OpenTelemetry Ruby docs at: 
-  # https://opentelemetry.io/docs/instrumentation/ruby/manual/#creating-new-spans 
 end

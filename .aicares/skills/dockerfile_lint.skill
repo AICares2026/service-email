@@ -1,0 +1,55 @@
+You are an autonomous code-maintenance agent. Your task is to scan the codebase for Dockerfiles and apply fixes for known best-practice violations. You must make only safe, mechanical changes as described below. You cannot ask questions — use the rules here to make every decision.
+
+---
+
+## SCOPE: FILES TO SCAN
+
+- Search recursively for files named exactly `Dockerfile` or matching `Dockerfile.*` (e.g., `Dockerfile.dev`, `Dockerfile.prod`).
+- Also check `docker-compose.yml` and `docker-compose.yaml` files for inline `build:` context references, but **do not modify compose files directly** — only the Dockerfiles they reference.
+- Skip any file inside `vendor/`, `node_modules/`, `.git/`, or any directory named `testdata/` or `fixtures/`.
+- Skip Dockerfiles that contain the comment `# dockerfile-agent: skip` anywhere in the file.
+
+---
+
+## FIXES TO APPLY
+
+Apply each fix independently. A file may receive multiple fixes in one pass.
+
+---
+
+### FIX 1 — Pin base image digests
+
+**Detect:** Any `FROM` line that references a base image by tag only (e.g., `FROM ubuntu:22.04`, `FROM node:18-alpine`) without a `@sha256:` digest.
+
+Also detect `FROM` lines with no tag at all (e.g., `FROM ubuntu`, `FROM node`) — these implicitly use `latest` and must be treated as tag `latest` for resolution purposes.
+
+**Fix:**
+1. Resolve the current digest for the exact tag specified by running:
+   `docker buildx imagetools inspect <image>:<tag> --format '{{index .Manifest "digest"}}'`
+   If `docker buildx` is unavailable, fall back to:
+   `docker manifest inspect <image>:<tag> | jq -r '.config.digest'`
+   Note: `docker manifest inspect` returns the config digest, not the manifest digest; prefer `buildx imagetools` when available as it returns the correct manifest digest to use in `FROM` pins.
+2. Rewrite the `FROM` line to append the digest:
+   `FROM ubuntu:22.04@sha256:<resolved-digest>`
+   Keep the original tag so the image name remains human-readable. If the original line had no tag, add `:latest` explicitly before the digest: `FROM ubuntu:latest@sha256:<digest>`.
+3. Add or update a comment on the line immediately above the `FROM` statement:
+   `# Pinned on <ISO-8601 date>. Re-run agent to refresh.`
+   If a `# Pinned on …` comment already exists on that line, replace it rather than adding a second one.
+
+**Leave alone:**
+- `FROM scratch` — never modify this.
+- `FROM` lines already containing `@sha256:` — do not re-pin unless the digest is provably stale (it is not your job to refresh existing pins; leave them as-is).
+- `ARG`-interpolated image names (e.g., `FROM ${BASE_IMAGE}`, `FROM ${BASE_IMAGE}:${TAG}`) — skip these entirely; the value is dynamic and cannot be safely resolved.
+- Multi-stage aliases: `FROM node:18 AS builder` — pin the image but preserve the `AS <alias>` clause: `FROM node:18@sha256:<digest> AS builder`.
+- Multi-stage `FROM` lines that reference a prior build stage by name (e.g., `FROM builder`, `FROM deps AS final`) — these are stage aliases, not registry images. Detect this case by checking whether the image name (excluding any `AS` clause) matches an alias defined by a prior `FROM … AS <name>` in the same file. Skip these lines entirely.
+
+**Precondition:** Only apply this fix if the `docker` CLI or registry API is available and the image tag resolves successfully. If resolution fails (network error, private registry without credentials, non-existent tag), leave the line unchanged and append a warning to the agent log: `WARN: Could not resolve digest for <image>:<tag> in <filepath> — left unchanged.`
+
+---
+
+### FIX 2 — Remove redundant layers
+
+**Detect:** Multiple consecutive `RUN` instructions that could be merged without changing behavior.
+
+**Specifically target:**
+- Two or more adjacent `RUN` lines that all use the same package manager (e.g., consecutive `apt-get`,
