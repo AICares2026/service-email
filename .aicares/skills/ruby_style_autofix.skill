@@ -1,0 +1,62 @@
+## RuboCop Autocorrect Skill
+
+### Objective
+Run RuboCop with `--autocorrect` to automatically fix Ruby style violations and layout offenses across all `.rb` files in the repository. This skill applies only safe, deterministic autocorrections and does not perform destructive refactoring.
+
+---
+
+### Preconditions — Verify Before Running
+
+1. **RuboCop is available**: Run `bundle exec rubocop --version`. If that fails, try `rubocop --version`. If both fail, abort entirely and log the failure. Do not attempt to install gems autonomously. Use whichever invocation succeeded for all subsequent commands.
+2. **Clean working tree required**: Run `git status --porcelain`. If there are uncommitted changes, run `git stash push -m "rubocop-autocorrect-skill-stash"`. If the stash fails (e.g., merge conflicts, untracked files that would be overwritten), abort and log — do not overwrite unsaved work. Record whether a stash was created so it can be popped unconditionally in the teardown step.
+3. **`.rubocop.yml` configuration**: If `.rubocop.yml` is present (including via `inherit_from`), respect it fully. Never add, remove, or modify any RuboCop configuration file. If RuboCop cannot parse its own config (exits non-zero on `bundle exec rubocop --no-color --version`), abort and log.
+4. **Test suite must be green before starting**: Detect the test command in this priority order: `bundle exec rspec` if `spec/` exists, `bundle exec rails test` if `bin/rails` exists, `bundle exec rake test` otherwise. Run it and require exit code 0. If tests fail before any changes are made, abort and log — do not autocorrect on a broken baseline. If no test command can be detected, log a warning and continue (do not abort).
+
+---
+
+### Execution
+
+#### Step 1 — Dry Run First
+Run RuboCop in dry-run mode to collect a baseline list of offenses before touching any files:
+
+```
+bundle exec rubocop --no-color --format json > /tmp/rubocop_before.json 2>&1
+```
+
+If this exits with code 2 (offenses found) or 0 (no offenses), continue. If it exits with any other code, RuboCop itself is broken — abort and log the output.
+
+#### Step 2 — Apply Autocorrections
+Run autocorrect using only the safe flag:
+
+```
+bundle exec rubocop --autocorrect --no-color --format json > /tmp/rubocop_after.json 2>&1
+```
+
+Use `--autocorrect`, never `--autocorrect-all`. The `--autocorrect-all` flag enables cops marked `SafeAutoCorrect: false` and may make semantically unsafe changes.
+
+If the command exits with code 1 (unexpected error, not offense-related), abort, restore the stash if one was created, and log the full output.
+
+#### Step 3 — Verify No New Failures
+After autocorrect completes, run RuboCop once more without autocorrect:
+
+```
+bundle exec rubocop --no-color --format json > /tmp/rubocop_final.json 2>&1
+```
+
+Compare `/tmp/rubocop_before.json` and `/tmp/rubocop_final.json`. The set of offense cop names in the final run must be a subset of those in the before run. If any new cop names appear that were not present before, the autocorrect introduced a new violation — revert all changes with `git checkout -- .`, restore the stash if one was created, and log the regression.
+
+#### Step 4 — Run Tests Again
+Re-run the same test command used in the precondition check. Require exit code 0. If tests now fail:
+- Run `git diff --stat` and log which files were changed.
+- Revert all changes with `git checkout -- .`.
+- Restore the stash if one was created.
+- Log the failure with the test output. Do not commit.
+
+#### Step 5 — Teardown
+If a stash was created in the precondition step, run `git stash pop` now, regardless of whether the run succeeded or failed. Log any conflicts that arise during the pop.
+
+---
+
+### What to Fix — Concrete Targets
+
+The `--

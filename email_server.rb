@@ -33,7 +33,7 @@ OpenTelemetry::SDK.configure do |c|
   c.use "OpenTelemetry::Instrumentation::Sinatra"
 end
 
-$logger = OpenTelemetry.logger_provider.logger(name: 'email')
+$logger = OpenTelemetry.logger_provider.logger(name: "email")
 
 otlp_metric_exporter = OpenTelemetry::Exporter::OTLP::Metrics::MetricsExporter.new
 OpenTelemetry.meter_provider.add_metric_reader(otlp_metric_exporter)
@@ -45,22 +45,21 @@ post "/send_order_confirmation" do
 
   # get the current auto-instrumented span
   current_span = OpenTelemetry::Trace.current_span
-  current_span.add_attributes({
-    "demo.order.id" => data.order.order_id,
-  })
+  current_span.add_attributes(
+    "demo.order.id" => data.order.order_id
+  )
 
   $confirmation_counter.add(1)
   send_email(data)
-
 end
 
 error do
-  OpenTelemetry::Trace.current_span.record_exception(env['sinatra.error'])
+  OpenTelemetry::Trace.current_span.record_exception(env["sinatra.error"])
 end
 
 def send_email(data)
   # create and start a manual span
-  tracer = OpenTelemetry.tracer_provider.tracer('email')
+  tracer = OpenTelemetry.tracer_provider.tracer("email")
   tracer.in_span("send_email") do |span|
     # Check if memory leak flag is enabled
     client = OpenFeature::SDK.build_client
@@ -68,7 +67,7 @@ def send_email(data)
 
     # To speed up the memory leak we create a long email body
     confirmation_content = erb(:confirmation, locals: { order: data.order })
-    whitespace_length = [0, confirmation_content.length * (memory_leak_multiplier-1)].max
+    whitespace_length = [0, confirmation_content.length * (memory_leak_multiplier - 1)].max
 
     Pony.mail(
       to:       data.email,
@@ -80,22 +79,20 @@ def send_email(data)
 
     # If not clearing the deliveries, the emails will accumulate in the test mailer
     # We use this to create a memory leak.
-    if memory_leak_multiplier < 1
-      Mail::TestMailer.deliveries.clear
-    end
+    Mail::TestMailer.deliveries.clear if memory_leak_multiplier < 1
 
     span.set_attribute("demo.order.id", data.order.order_id)
     $logger.on_emit(
       timestamp: Time.now,
-      severity_text: 'INFO',
-      body: 'Order confirmation email sent',
-      attributes: { 'demo.order.id' => data.order.order_id },
+      severity_text: "INFO",
+      body: "Order confirmation email sent",
+      attributes: { "demo.order.id" => data.order.order_id },
     )
 
     puts "Order confirmation email sent for order #{data.order.order_id}"
   end
   # manually created spans need to be ended
   # in Ruby, the method `in_span` ends it automatically
-  # check out the OpenTelemetry Ruby docs at: 
-  # https://opentelemetry.io/docs/instrumentation/ruby/manual/#creating-new-spans 
+  # check out the OpenTelemetry Ruby docs at:
+  # https://opentelemetry.io/docs/instrumentation/ruby/manual/#creating-new-spans
 end
